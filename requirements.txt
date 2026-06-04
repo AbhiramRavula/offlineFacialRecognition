@@ -1,0 +1,26 @@
+# NHAI FaceGuard SDK — Dependencies
+# All inference runs 100% offline via ONNX Runtime (CPU)
+
+# Core ML
+onnxruntime>=1.16.0          # Offline CPU inference engine
+numpy>=1.24.0                # Array operations
+
+# Computer Vision
+opencv-python>=4.8.0         # Frame capture, image processing
+Pillow>=10.0.0               # Image I/O
+
+# Face Analysis (insightface manages ONNX model download/caching)
+insightface>=0.7.3           # SCRFD detector + ArcFace recognizer
+
+# Scientific
+scipy>=1.11.0                # Cosine similarity, spatial transforms
+scikit-learn>=1.3.0          # Nearest-neighbor face search (optional)
+
+# API Layer (for Datalake 3.0 integration)
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6      # File upload support
+
+# Utilities
+requests>=2.31.0             # Model download (one-time only)
+tqdm>=4.66.0                 # Download progress bar
