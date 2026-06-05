@@ -1,0 +1,29 @@
+# Python Virtual Environments (Ignore venv)
+venv/
+.venv/
+env/
+pyvenv.cfg
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Local database (keeps enrolled biometrics private and local)
+*.sqlite
+*.sqlite3
+*.db
+
+# Large Model Weights (downloaded via setup)
+models/
+.insightface/
+
+# Demo screenshots
+demo/screenshots/
+
+# IDE & Editor configurations
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
