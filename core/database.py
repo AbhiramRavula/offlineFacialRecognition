@@ -114,6 +114,7 @@ class FaceDatabase:
         Returns:
             True on success, False on failure.
         """
+        embedding = np.asarray(embedding, dtype=np.float32).flatten()
         blob = _emb_to_blob(embedding)
         with self._lock:
             try:
@@ -211,6 +212,7 @@ class FaceDatabase:
         if not self._cache:
             return []
 
+        query_embedding = np.asarray(query_embedding, dtype=np.float32).flatten()
         scores = []
         for person_id, (name, stored_emb) in self._cache.items():
             dist = float(1.0 - np.dot(query_embedding, stored_emb))
@@ -237,6 +239,7 @@ class FaceDatabase:
         Returns:
             (is_match: bool, distance: float)
         """
+        query_embedding = np.asarray(query_embedding, dtype=np.float32).flatten()
         record = self._cache.get(person_id)
         if record is None:
             logger.warning("Person ID '%s' not found in database.", person_id)
