@@ -1,6 +1,6 @@
 """
-NHAI FaceGuard SDK — Live Webcam Demo
-Real-time facial recognition + liveness detection demo.
+NHAI FaceGuard SDK — Live Webcam Demo with Active Challenge-Response
+Real-time facial recognition + active liveness + passive anti-spoofing.
 
 Controls:
     R - Register current detected face (enter ID + name in terminal)
@@ -21,77 +21,92 @@ from core.detector   import FaceDetector
 from core.liveness   import LivenessDetector, LivenessResult
 from core.recognizer import FaceRecognizer
 from core.database   import FaceDatabase
-from utils.image_utils import draw_results
 
-logging.basicConfig(level=logging.WARNING)  # Suppress info spam in demo
+logging.basicConfig(level=logging.WARNING)
 
-
-WINDOW_TITLE = "NHAI FaceGuard — Live Demo  |  R=Register  Q=Quit"
+WINDOW_TITLE = "NHAI FaceGuard — Active Liveness Demo | R=Register Q=Quit"
 SCREENSHOT_DIR = os.path.join(os.path.dirname(__file__), "screenshots")
 
 
-def draw_hud(frame: np.ndarray, fps: float, enrolled_count: int, live_mode: str = "") -> np.ndarray:
-    """Draw heads-up display with FPS and enrollment count."""
+# ── Active Liveness: Landmark-Based Metrics ─────────────────────────────────
+
+def get_active_metrics(landmarks: np.ndarray):
+    """
+    Compute smile_ratio and turn_ratio from 5-point face landmarks.
+
+    Landmark indices (InsightFace kps):
+        0: Left Eye (LE)
+        1: Right Eye (RE)
+        2: Nose Tip
+        3: Left Mouth Corner (LM)
+        4: Right Mouth Corner (RM)
+
+    Returns:
+        smile_ratio: mouth_width / eye_distance (higher = smiling)
+        turn_ratio:  horizontal nose position between eyes (0.5 = centered)
+    """
+    le = landmarks[0]
+    re = landmarks[1]
+    nose = landmarks[2]
+    lm = landmarks[3]
+    rm = landmarks[4]
+
+    # Smile: ratio of mouth width to inter-eye distance
+    eye_dist = np.linalg.norm(re - le)
+    mouth_width = np.linalg.norm(rm - lm)
+    smile_ratio = mouth_width / (eye_dist + 1e-6)
+
+    # Head turn: horizontal position of nose tip relative to eyes
+    # 0.5 = centered, <0.35 = turned left, >0.65 = turned right
+    dx_eyes = re[0] - le[0] + 1e-6
+    turn_ratio = (nose[0] - le[0]) / dx_eyes
+
+    return smile_ratio, turn_ratio
+
+
+# ── HUD Drawing ─────────────────────────────────────────────────────────────
+
+def draw_hud(frame: np.ndarray, fps: float, enrolled_count: int, state: str) -> np.ndarray:
+    """Draw heads-up display with FPS, enrollment count, and current state."""
     h, w = frame.shape[:2]
     overlay = frame.copy()
-    cv2.rectangle(overlay, (0, h - 45), (w, h), (20, 20, 20), -1)
+    cv2.rectangle(overlay, (0, h - 50), (w, h), (15, 15, 15), -1)
     cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
 
-    cv2.putText(frame, f"FPS: {fps:.1f}", (10, h - 15),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 180), 2)
-    cv2.putText(frame, f"Enrolled: {enrolled_count}", (150, h - 15),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 180), 2)
-    mode_label = f"Liveness: {live_mode}" if live_mode else "NHAI FaceGuard SDK v1.0"
-    cv2.putText(frame, mode_label, (w - 310, h - 15),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 200, 150), 1)
+    cv2.putText(frame, f"FPS: {fps:.1f}", (10, h - 20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 180), 2)
+    cv2.putText(frame, f"Enrolled: {enrolled_count}", (150, h - 20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 180), 2)
+    cv2.putText(frame, f"STATE: {state}", (w - 260, h - 20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
     return frame
 
 
-def draw_liveness_badge(frame: np.ndarray, result: str, score: float, bbox) -> np.ndarray:
-    """Draw a colored liveness badge over the bounding box."""
-    if result == "REAL":
-        color  = (0, 210, 0)
-        label  = f"✓ REAL  {score:.0%}"
-    elif result == "SPOOF":
-        color  = (0, 50, 220)
-        label  = f"✗ SPOOF {score:.0%}"
-    else:
-        color  = (0, 200, 220)
-        label  = "? CHECKING"
-
-    x1, y1 = int(bbox[0]), int(bbox[1])
-    x2, y2 = int(bbox[2]), int(bbox[3])
-
-    # Draw box
-    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-    # Badge background
-    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.65, 2)
-    cv2.rectangle(frame, (x1, y1 - th - 12), (x1 + tw + 8, y1), color, -1)
-    cv2.putText(frame, label, (x1 + 4, y1 - 5),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
+def draw_challenge_prompt(frame: np.ndarray, challenge: str, time_left: float) -> np.ndarray:
+    """Draw the active challenge instruction card on the frame."""
+    cv2.rectangle(frame, (30, 30), (480, 145), (25, 25, 25), -1)
+    cv2.rectangle(frame, (30, 30), (480, 145), (0, 180, 240), 2)
+    cv2.putText(frame, f"ACTIVE CHALLENGE: {challenge}", (50, 75),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
+    cv2.putText(frame, f"Time Left: {time_left:.1f}s", (50, 115),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
     return frame
 
 
-def draw_identity_badge(frame: np.ndarray, name: str, distance: float, bbox) -> np.ndarray:
-    """Draw identity label below bounding box."""
-    x1, y2 = int(bbox[0]), int(bbox[3])
-    confidence = max(0.0, 1.0 - distance)
-
-    if distance < 0.3:
-        color = (0, 220, 0)
-    elif distance < 0.45:
-        color = (0, 180, 220)
-    else:
-        color = (80, 80, 220)
-
-    label = f"{name}  {confidence:.0%}"
-    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.65, 2)
-    cv2.rectangle(frame, (x1, y2), (x1 + tw + 8, y2 + th + 12), color, -1)
-    cv2.putText(frame, label, (x1 + 4, y2 + th + 5),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
+def draw_result_badge(frame: np.ndarray, passed: bool, text: str) -> np.ndarray:
+    """Draw a PASSED or FAILED result badge on the frame."""
+    color = (0, 200, 0) if passed else (0, 0, 220)
+    label = "LIVENESS PASSED (REAL)" if passed else "LIVENESS REJECTED"
+    cv2.rectangle(frame, (30, 30), (550, 145), (25, 25, 25), -1)
+    cv2.rectangle(frame, (30, 30), (550, 145), color, 2)
+    cv2.putText(frame, label, (50, 75),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+    cv2.putText(frame, text, (50, 115),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
     return frame
 
+
+# ── Registration ────────────────────────────────────────────────────────────
 
 def register_face_interactive(
     recognizer: FaceRecognizer,
@@ -126,9 +141,11 @@ def register_face_interactive(
     print("=" * 50 + "\n")
 
 
+# ── Main Demo Loop ──────────────────────────────────────────────────────────
+
 def run_demo(camera_index: int = 0) -> None:
     print("=" * 60)
-    print("  NHAI FaceGuard SDK — Live Demo")
+    print("  NHAI FaceGuard — Active Challenge Live Demo")
     print("  Initializing pipeline (first run downloads models)...")
     print("=" * 60)
 
@@ -148,20 +165,28 @@ def run_demo(camera_index: int = 0) -> None:
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-
     os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
     fps_counter = 0
     fps_timer   = time.time()
     fps         = 0.0
 
-    # Process liveness every N frames (liveness is slower)
-    LIVENESS_EVERY_N = 5
-    frame_count = 0
-    cached_liveness = None
-    cached_live_score = 0.0
+    # ── Active Liveness State Machine ──────────────────────────────────────
+    STATE_IDLE      = "IDLE"
+    STATE_CHALLENGE = "CHALLENGE"
+    STATE_PASSED    = "PASSED"
+    STATE_FAILED    = "FAILED"
 
-    print("\n  [✓] Camera open. Starting demo...\n")
+    current_state        = STATE_IDLE
+    current_challenge    = None
+    challenge_timeout    = 6.0   # seconds allowed to perform the action
+    challenge_start_time = 0.0
+    verified_name        = ""
+    state_display_timer  = 0.0
+
+    CHALLENGES = ["SMILE", "TURN LEFT", "TURN RIGHT"]
+
+    print("\n  [✓] Camera open. Starting Active Challenge demo...\n")
     print("  Controls:  R = Register face | S = Screenshot | Q = Quit\n")
 
     while True:
@@ -170,49 +195,109 @@ def run_demo(camera_index: int = 0) -> None:
             print("[ERROR] Failed to read frame.")
             break
 
-        frame_count += 1
         display = frame.copy()
-
-        # Detect largest face
         face = detector.detect_largest(frame)
 
         if face is not None:
-            # Liveness (every N frames for performance)
-            if frame_count % LIVENESS_EVERY_N == 0 or cached_liveness is None:
-                if liveness.is_ready:
-                    result, score = liveness.check(frame, face.bbox)
-                    cached_liveness   = result.value
-                    cached_live_score = score
-                else:
-                    cached_liveness   = "UNKNOWN"
-                    cached_live_score = 0.0
+            # Draw landmarks and bounding box
+            for pt in face.landmarks:
+                cv2.circle(display, (int(pt[0]), int(pt[1])), 4, (0, 140, 255), -1)
+            cv2.rectangle(display, (face.x1, face.y1), (face.x2, face.y2),
+                          (255, 255, 255), 1)
 
-            draw_liveness_badge(display, cached_liveness, cached_live_score, face.bbox)
+            # Compute active metrics from landmarks
+            smile_ratio, turn_ratio = get_active_metrics(face.landmarks)
 
-            # Recognition (only if REAL)
-            if cached_liveness == "REAL":
-                emb = recognizer.get_embedding_from_full_image(frame, face.bbox, face.landmarks)
-                if emb is not None:
-                    matches = db.identify(emb, top_k=1)
-                    if matches:
-                        pid, name, dist = matches[0]
-                        draw_identity_badge(display, name, dist, face.bbox)
+            # ── State Machine ──────────────────────────────────────────────
+
+            if current_state == STATE_IDLE:
+                # Pick a random challenge when a face appears
+                current_challenge = np.random.choice(CHALLENGES)
+                current_state = STATE_CHALLENGE
+                challenge_start_time = time.time()
+                print(f"[ACTIVE LIVENESS] Challenge issued: {current_challenge}")
+
+            elif current_state == STATE_CHALLENGE:
+                elapsed   = time.time() - challenge_start_time
+                time_left = max(0.0, challenge_timeout - elapsed)
+
+                draw_challenge_prompt(display, current_challenge, time_left)
+
+                # Check if the user performed the requested action
+                passed = False
+                if current_challenge == "SMILE" and smile_ratio > 0.83:
+                    passed = True
+                elif current_challenge == "TURN LEFT" and turn_ratio < 0.33:
+                    passed = True
+                elif current_challenge == "TURN RIGHT" and turn_ratio > 0.67:
+                    passed = True
+
+                if passed:
+                    # Active check passed — now run passive anti-spoofing
+                    print("[ACTIVE] Challenge passed. Running passive spoof check...")
+                    if liveness.is_ready:
+                        p_res, p_score = liveness.check(frame, face.bbox)
+                        if p_res == LivenessResult.SPOOF:
+                            current_state = STATE_FAILED
+                            state_display_timer = time.time()
+                            print("[PASSIVE] SPOOF detected after active pass!")
+                        else:
+                            current_state = STATE_PASSED
+                            state_display_timer = time.time()
+
+                            # Perform recognition and log attendance
+                            emb = recognizer.get_embedding_from_full_image(
+                                frame, face.bbox, face.landmarks
+                            )
+                            if emb is not None:
+                                matches = db.identify(emb, top_k=1)
+                                if matches:
+                                    pid, name, dist = matches[0]
+                                    conf = max(0.0, 1.0 - dist)
+                                    verified_name = f"{name} ({conf:.0%})"
+                                    db.log_attendance(
+                                        pid, p_score, "active-passive-liveness"
+                                    )
+                                    print(f"[VERIFIED] {name} (distance: {dist:.4f})")
+                                else:
+                                    verified_name = "Unknown — Not in Database"
+                            else:
+                                verified_name = "Embedding extraction failed"
                     else:
-                        cv2.putText(display, "Unknown Person",
-                                    (int(face.bbox[0]), int(face.bbox[3]) + 22),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
-        else:
-            cv2.putText(display, "No face detected", (20, 50),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 140, 255), 2)
+                        # No passive model — pass anyway
+                        current_state = STATE_PASSED
+                        state_display_timer = time.time()
+                        verified_name = "Real Face (passive model unavailable)"
 
-        # FPS
+                elif elapsed >= challenge_timeout:
+                    current_state = STATE_FAILED
+                    state_display_timer = time.time()
+                    print("[ACTIVE] Challenge timed out!")
+
+            elif current_state == STATE_PASSED:
+                draw_result_badge(display, True, f"Verified: {verified_name}")
+                if time.time() - state_display_timer >= 3.0:
+                    current_state = STATE_IDLE
+
+            elif current_state == STATE_FAILED:
+                draw_result_badge(display, False, "Spoof Attack or Timeout Detected")
+                if time.time() - state_display_timer >= 3.0:
+                    current_state = STATE_IDLE
+
+        else:
+            # No face detected — reset state machine
+            current_state = STATE_IDLE
+            cv2.putText(display, "No face detected — position yourself in front of the camera",
+                        (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 140, 255), 2)
+
+        # FPS counter
         fps_counter += 1
         if time.time() - fps_timer >= 1.0:
             fps = fps_counter / (time.time() - fps_timer)
             fps_counter = 0
             fps_timer = time.time()
 
-        draw_hud(display, fps, db.count(), liveness.mode)
+        draw_hud(display, fps, db.count(), current_state)
         cv2.imshow(WINDOW_TITLE, display)
 
         key = cv2.waitKey(1) & 0xFF
@@ -235,7 +320,7 @@ def run_demo(camera_index: int = 0) -> None:
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="NHAI FaceGuard Live Demo")
+    parser = argparse.ArgumentParser(description="NHAI FaceGuard Active Liveness Demo")
     parser.add_argument("--camera", type=int, default=0, help="Camera index (default: 0)")
     args = parser.parse_args()
     run_demo(camera_index=args.camera)

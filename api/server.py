@@ -10,6 +10,8 @@ Endpoints:
     POST /verify           — 1:1 verify against a specific person
     GET  /faces            — List all enrolled persons
     DELETE /face/{id}      — Remove a person from DB
+    GET  /attendance/unsynced — View queued offline logs
+    POST /attendance/sync    — Sync logs to AWS & purge local data
 """
 
 import sys
@@ -23,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cv2
 import numpy as np
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -184,6 +187,7 @@ def identify_face(req: IdentifyRequest):
     """
     1:N identification — find who this person is from the enrolled database.
     Optionally runs liveness check first to reject spoof attacks.
+    Automatically logs successful verifications to the local attendance ledger.
     """
     img, face, _, liveness_det, recognizer, db = _decode_and_detect(req.image_b64)
 
@@ -228,6 +232,15 @@ def identify_face(req: IdentifyRequest):
         )
         for pid, name, dist in matches
     ]
+
+    # ── LOG ATTENDANCE LOCALLY ON SUCCESS (For Sync & Purge) ──
+    if liveness_label == "REAL":
+        db.log_attendance(
+            person_id=face_matches[0].person_id,
+            liveness_score=liveness_score or 1.0,
+            verification_mode="passive-liveness"
+        )
+
     return IdentifyResponse(
         success=True,
         liveness=liveness_label,
@@ -268,6 +281,15 @@ def verify_face(req: VerifyRequest):
 
     # Verify against specific person
     is_match, distance = db.verify(req.person_id, embedding)
+
+    # ── LOG ATTENDANCE LOCALLY ON SUCCESS ──
+    if is_match and liveness_label == "REAL":
+        db.log_attendance(
+            person_id=req.person_id,
+            liveness_score=liveness_score or 1.0,
+            verification_mode="passive-liveness-1:1"
+        )
+
     return VerifyResponse(
         success=True,
         is_match=is_match,
@@ -295,9 +317,81 @@ def delete_face(person_id: str):
     return {"success": True, "message": f"Removed '{person_id}' from database."}
 
 
+# ── Sync & Purge Endpoints ────────────────────────────────────────────────
+
+@app.get("/attendance/unsynced", tags=["Sync & Purge"])
+def get_unsynced_attendance():
+    """Retrieve all offline biometric verify sessions waiting to be synced."""
+    _, _, _, db = get_pipeline()
+    logs = db.get_unsynced_logs()
+    return {"unsynced_logs": logs, "count": len(logs)}
+
+
+@app.post("/attendance/sync", tags=["Sync & Purge"])
+def sync_attendance():
+    """
+    Simulate uploading unsynced local logs to AWS.
+    Upon successful API Gateway response, logs are immediately PURGED
+    from local SQLite storage to free device memory.
+    """
+    _, _, _, db = get_pipeline()
+    logs = db.get_unsynced_logs()
+    if not logs:
+        return {"success": True, "message": "No unsynced logs to upload.", "purged_count": 0}
+
+    # Extract IDs to sync
+    log_ids = [log["id"] for log in logs]
+
+    # Mock AWS upload process
+    logger.info("Uploading %d logs to AWS API Gateway endpoint...", len(log_ids))
+
+    # Mark logs as synced
+    db.mark_logs_as_synced(log_ids)
+
+    # Purge them locally to free up device memory
+    purged_count = db.purge_synced_logs()
+
+    return {
+        "success": True,
+        "message": f"Successfully synced {len(log_ids)} logs to AWS.",
+        "synced_count": len(log_ids),
+        "purged_count": purged_count
+    }
+
+
+# ── UI Route ───────────────────────────────────────────────────────────────
+
+@app.get("/", response_class=HTMLResponse, tags=["UI"])
+def read_root():
+    """Serve the web-based interactive demo."""
+    html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "index.html")
+    if os.path.exists(html_path):
+        try:
+            with open(html_path, "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+        except Exception as e:
+            return HTMLResponse(content=f"<h1>Error loading UI</h1><p>{str(e)}</p>", status_code=500)
+    return HTMLResponse(
+        content="""
+        <html>
+            <head><title>NHAI FaceGuard</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding-top: 10%; background: #0b0f19; color: #fff;">
+                <h1>NHAI FaceGuard API is Running</h1>
+                <p>Interactive web demo not found. Please place <code>index.html</code> in <code>api/templates/</code>.</p>
+                <p>View Swagger API documentation at <a href="/docs" style="color: #00f2fe;">/docs</a>.</p>
+            </body>
+        </html>
+        """
+    )
+
+
 # ── Entry Point ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     from utils.config import API_HOST, API_PORT
-    logger.info("Starting NHAI FaceGuard API on http://%s:%d", API_HOST, API_PORT)
-    uvicorn.run(app, host=API_HOST, port=API_PORT, log_level="info")
+
+    host = os.environ.get("HOST", API_HOST)
+    port = int(os.environ.get("PORT", API_PORT))
+
+    logger.info("Starting NHAI FaceGuard API on http://%s:%d", host, port)
+    uvicorn.run(app, host=host, port=port, log_level="info")

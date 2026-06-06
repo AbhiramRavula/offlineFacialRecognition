@@ -15,7 +15,7 @@ from utils.config import DB_PATH, EMBEDDING_DIM
 
 logger = logging.getLogger(__name__)
 
-# SQL Schema
+# SQL Schema (Updated with Attendance Logging table for Sync & Purge)
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS faces (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,6 +26,15 @@ CREATE TABLE IF NOT EXISTS faces (
     metadata      TEXT    DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_person_id ON faces(person_id);
+
+CREATE TABLE IF NOT EXISTS attendance_logs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id     TEXT    NOT NULL,
+    timestamp     TEXT    DEFAULT (datetime('now', 'localtime')),
+    liveness_score REAL    NOT NULL,
+    verification_mode TEXT NOT NULL,
+    is_synced     INTEGER DEFAULT 0
+);
 """
 
 
@@ -42,9 +51,8 @@ def _blob_to_emb(blob: bytes) -> np.ndarray:
 class FaceDatabase:
     """
     Thread-safe SQLite database for storing and searching face embeddings.
-
-    Each person can have ONE embedding (averaged over multiple samples
-    for robustness — handled by the caller).
+    Contains support for local attendance transaction logging to facilitate
+    offline-to-online Sync & Purge protocols.
 
     Usage:
         db = FaceDatabase()
@@ -237,3 +245,63 @@ class FaceDatabase:
         _, stored_emb = record
         dist = float(1.0 - np.dot(query_embedding, stored_emb))
         return dist <= threshold, dist
+
+    # ── Sync & Purge Local Logging Operations ────────────────────────────────
+
+    def log_attendance(
+        self, person_id: str, liveness_score: float, verification_mode: str
+    ) -> int:
+        """Log a local verification session event (for offline queuing)."""
+        with self._lock:
+            try:
+                with self._connect() as conn:
+                    cursor = conn.execute(
+                        """INSERT INTO attendance_logs (person_id, liveness_score, verification_mode)
+                           VALUES (?, ?, ?)""",
+                        (person_id, liveness_score, verification_mode),
+                    )
+                    log_id = cursor.lastrowid
+                logger.info("Logged attendance locally for '%s' (Row ID: %d)", person_id, log_id)
+                return log_id
+            except Exception as e:
+                logger.error("Failed to log local attendance: %s", e)
+                return -1
+
+    def get_unsynced_logs(self) -> List[Dict]:
+        """Fetch all offline verification logs waiting for AWS synchronization."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, person_id, timestamp, liveness_score, verification_mode FROM attendance_logs WHERE is_synced = 0"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_logs_as_synced(self, log_ids: List[int]) -> bool:
+        """Mark local logs as successfully uploaded to the cloud."""
+        if not log_ids:
+            return True
+        with self._lock:
+            try:
+                with self._connect() as conn:
+                    placeholders = ",".join("?" for _ in log_ids)
+                    conn.execute(
+                        f"UPDATE attendance_logs SET is_synced = 1 WHERE id IN ({placeholders})",
+                        tuple(log_ids)
+                    )
+                logger.info("Marked %d logs as successfully synchronized.", len(log_ids))
+                return True
+            except Exception as e:
+                logger.error("Failed to mark sync state: %s", e)
+                return False
+
+    def purge_synced_logs(self) -> int:
+        """Purge synced records from local SQLite to release device memory."""
+        with self._lock:
+            try:
+                with self._connect() as conn:
+                    cursor = conn.execute("DELETE FROM attendance_logs WHERE is_synced = 1")
+                    deleted_count = cursor.rowcount
+                logger.info("Purged %d transaction logs from local database.", deleted_count)
+                return deleted_count
+            except Exception as e:
+                logger.error("Failed to purge synced logs: %s", e)
+                return 0
