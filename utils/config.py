@@ -38,7 +38,7 @@ INSIGHTFACE_MODEL_PACK = "buffalo_sc"
 INSIGHTFACE_PROVIDERS  = ["CPUExecutionProvider"]
 
 # ── API Settings ───────────────────────────────────────────────────────────
-API_HOST = "127.0.0.1"
+API_HOST = "0.0.0.0"
 API_PORT = 8000
 
 # ── Logging ────────────────────────────────────────────────────────────────

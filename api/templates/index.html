@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="NHAI FaceGuard — Offline Facial Recognition & Liveness Detection">
+    <title>NHAI FaceGuard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* ── Reset & Base ──────────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg-primary: #06080f;
+            --bg-secondary: #0c1020;
+            --bg-card: rgba(15, 20, 40, 0.65);
+            --border-glass: rgba(100, 140, 255, 0.12);
+            --accent: #4f8cff;
+            --accent-glow: rgba(79, 140, 255, 0.35);
+            --accent-green: #00e88f;
+            --accent-red: #ff4f6e;
+            --accent-amber: #ffb84f;
+            --text-primary: #e8ecf4;
+            --text-secondary: #8891a5;
+            --text-muted: #555e72;
+            --radius: 16px;
+            --radius-sm: 10px;
+            --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        html, body {
+            height: 100%; width: 100%;
+            font-family: var(--font);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            display: flex; flex-direction: column;
+            min-height: 100dvh;
+            background:
+                radial-gradient(ellipse at 20% 0%, rgba(79, 140, 255, 0.08) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 100%, rgba(0, 232, 143, 0.05) 0%, transparent 50%),
+                var(--bg-primary);
+        }
+
+        /* ── Header ────────────────────────────────────────────── */
+        .header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 20px 12px;
+            background: rgba(6, 8, 15, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-glass);
+            position: sticky; top: 0; z-index: 100;
+        }
+
+        .header-brand {
+            display: flex; align-items: center; gap: 10px;
+        }
+
+        .header-logo {
+            width: 36px; height: 36px;
+            background: linear-gradient(135deg, var(--accent), var(--accent-green));
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px; font-weight: 800; color: #fff;
+            box-shadow: 0 4px 15px var(--accent-glow);
+        }
+
+        .header-title {
+            font-size: 17px; font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+
+        .header-title span { color: var(--accent); }
+
+        .header-badge {
+            font-size: 10px; font-weight: 600;
+            color: var(--accent-green);
+            background: rgba(0, 232, 143, 0.1);
+            border: 1px solid rgba(0, 232, 143, 0.2);
+            padding: 3px 8px; border-radius: 20px;
+            letter-spacing: 0.5px; text-transform: uppercase;
+        }
+
+        /* ── Main Content ──────────────────────────────────────── */
+        .main {
+            flex: 1;
+            display: flex; flex-direction: column; align-items: center;
+            padding: 16px 16px 100px;
+            gap: 16px;
+            overflow-y: auto;
+        }
+
+        /* ── Camera ────────────────────────────────────────────── */
+        .camera-container {
+            position: relative;
+            width: 100%; max-width: 400px;
+            aspect-ratio: 3/4;
+            border-radius: var(--radius);
+            overflow: hidden;
+            background: var(--bg-secondary);
+            border: 1.5px solid var(--border-glass);
+            box-shadow: 0 8px 40px rgba(0,0,0,0.4), 0 0 60px var(--accent-glow);
+        }
+
+        .camera-container video {
+            width: 100%; height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* mirror */
+        }
+
+        .camera-overlay {
+            position: absolute; inset: 0;
+            pointer-events: none;
+        }
+
+        /* Scanning crosshair overlay */
+        .scan-frame {
+            position: absolute;
+            top: 15%; left: 15%; right: 15%; bottom: 25%;
+            border: 2px solid rgba(79, 140, 255, 0.3);
+            border-radius: 20px;
+        }
+
+        .scan-frame::before, .scan-frame::after {
+            content: '';
+            position: absolute;
+            width: 30px; height: 30px;
+            border-color: var(--accent);
+            border-style: solid;
+        }
+
+        .scan-frame::before {
+            top: -2px; left: -2px;
+            border-width: 3px 0 0 3px;
+            border-radius: 12px 0 0 0;
+        }
+
+        .scan-frame::after {
+            top: -2px; right: -2px;
+            border-width: 3px 3px 0 0;
+            border-radius: 0 12px 0 0;
+        }
+
+        .scan-corner-bl, .scan-corner-br {
+            position: absolute;
+            width: 30px; height: 30px;
+            border-color: var(--accent);
+            border-style: solid;
+        }
+
+        .scan-corner-bl {
+            bottom: -2px; left: -2px;
+            border-width: 0 0 3px 3px;
+            border-radius: 0 0 0 12px;
+        }
+
+        .scan-corner-br {
+            bottom: -2px; right: -2px;
+            border-width: 0 3px 3px 0;
+            border-radius: 0 0 12px 0;
+        }
+
+        /* Scanning line animation */
+        .scan-line {
+            position: absolute;
+            left: 16%; right: 16%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            opacity: 0.6;
+            animation: scanLine 2.5s ease-in-out infinite;
+        }
+
+        @keyframes scanLine {
+            0%, 100% { top: 16%; opacity: 0; }
+            10% { opacity: 0.6; }
+            50% { top: 70%; opacity: 0.6; }
+            90% { opacity: 0; }
+        }
+
+        .camera-status {
+            position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+            font-size: 11px; font-weight: 600;
+            color: var(--accent-green);
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(10px);
+            padding: 4px 14px; border-radius: 20px;
+            letter-spacing: 0.5px;
+            display: flex; align-items: center; gap: 6px;
+        }
+
+        .camera-status .dot {
+            width: 6px; height: 6px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            animation: pulse-dot 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .camera-placeholder {
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            height: 100%; gap: 12px;
+            color: var(--text-muted);
+        }
+
+        .camera-placeholder svg { opacity: 0.3; }
+
+        /* ── Capture Button ────────────────────────────────────── */
+        .capture-section {
+            display: flex; flex-direction: column;
+            align-items: center; gap: 10px;
+            width: 100%; max-width: 400px;
+        }
+
+        .capture-btn {
+            position: relative;
+            width: 72px; height: 72px;
+            border-radius: 50%;
+            border: 3px solid var(--accent);
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .capture-btn::after {
+            content: '';
+            position: absolute;
+            inset: 5px;
+            border-radius: 50%;
+            background: var(--accent);
+            transition: all 0.15s ease;
+        }
+
+        .capture-btn:active::after {
+            inset: 8px;
+            background: #3a6fd8;
+        }
+
+        .capture-btn:disabled {
+            border-color: var(--text-muted);
+            opacity: 0.5; cursor: not-allowed;
+        }
+
+        .capture-btn:disabled::after { background: var(--text-muted); }
+
+        /* Pulsing ring */
+        .capture-btn::before {
+            content: '';
+            position: absolute;
+            inset: -8px;
+            border-radius: 50%;
+            border: 2px solid var(--accent);
+            opacity: 0;
+            animation: pulse-ring 2s ease-out infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.5; }
+            100% { transform: scale(1.25); opacity: 0; }
+        }
+
+        .capture-label {
+            font-size: 12px; font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* ── Loading spinner on capture ────────────────────────── */
+        .capture-btn.loading::after {
+            inset: 10px;
+            background: transparent;
+            border: 3px solid rgba(79, 140, 255, 0.2);
+            border-top-color: var(--accent);
+            animation: spin 0.7s linear infinite;
+        }
+
+        .capture-btn.loading::before { animation: none; opacity: 0; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Register Form ─────────────────────────────────────── */
+        .register-form {
+            width: 100%; max-width: 400px;
+            display: none;
+            flex-direction: column; gap: 10px;
+        }
+
+        .register-form.active { display: flex; }
+
+        .input-group {
+            display: flex; flex-direction: column; gap: 4px;
+        }
+
+        .input-group label {
+            font-size: 11px; font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .input-group input {
+            background: var(--bg-card);
+            border: 1.5px solid var(--border-glass);
+            border-radius: var(--radius-sm);
+            padding: 12px 14px;
+            font-family: var(--font);
+            font-size: 15px;
+            color: var(--text-primary);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .input-group input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .input-group input::placeholder { color: var(--text-muted); }
+
+        /* ── Verify Form ───────────────────────────────────────── */
+        .verify-form {
+            width: 100%; max-width: 400px;
+            display: none;
+            flex-direction: column; gap: 10px;
+        }
+
+        .verify-form.active { display: flex; }
+
+        /* ── Result Card ───────────────────────────────────────── */
+        .result-card {
+            width: 100%; max-width: 400px;
+            background: var(--bg-card);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1.5px solid var(--border-glass);
+            border-radius: var(--radius);
+            padding: 20px;
+            display: none;
+            flex-direction: column; gap: 14px;
+            animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .result-card.active { display: flex; }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .result-header {
+            display: flex; align-items: center; justify-content: space-between;
+        }
+
+        .result-title {
+            font-size: 13px; font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+        }
+
+        .result-dismiss {
+            background: none; border: none;
+            color: var(--text-muted); font-size: 20px;
+            cursor: pointer; padding: 4px;
+            line-height: 1;
+        }
+
+        .result-liveness {
+            display: flex; align-items: center; gap: 10px;
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            font-weight: 600; font-size: 14px;
+        }
+
+        .result-liveness.real {
+            background: rgba(0, 232, 143, 0.08);
+            border: 1px solid rgba(0, 232, 143, 0.2);
+            color: var(--accent-green);
+        }
+
+        .result-liveness.spoof {
+            background: rgba(255, 79, 110, 0.08);
+            border: 1px solid rgba(255, 79, 110, 0.2);
+            color: var(--accent-red);
+        }
+
+        .result-liveness .liveness-icon { font-size: 20px; }
+        .result-liveness .liveness-score {
+            margin-left: auto;
+            font-size: 13px; font-weight: 500;
+            opacity: 0.7;
+        }
+
+        .result-match {
+            display: flex; flex-direction: column; gap: 8px;
+        }
+
+        .result-name {
+            font-size: 22px; font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .result-meta {
+            display: flex; gap: 16px;
+        }
+
+        .result-meta-item {
+            display: flex; flex-direction: column; gap: 2px;
+        }
+
+        .result-meta-label {
+            font-size: 10px; font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-muted);
+        }
+
+        .result-meta-value {
+            font-size: 15px; font-weight: 600;
+        }
+
+        .result-message {
+            font-size: 13px;
+            color: var(--text-secondary);
+            padding: 10px 14px;
+            background: rgba(255,255,255,0.03);
+            border-radius: var(--radius-sm);
+            border-left: 3px solid var(--accent);
+        }
+
+        .result-message.error {
+            border-left-color: var(--accent-red);
+            color: var(--accent-red);
+        }
+
+        .result-message.success {
+            border-left-color: var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        /* ── Confidence Bar ────────────────────────────────────── */
+        .confidence-bar-wrapper {
+            display: flex; flex-direction: column; gap: 4px;
+        }
+
+        .confidence-bar {
+            height: 6px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .confidence-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            background: linear-gradient(90deg, var(--accent), var(--accent-green));
+            transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* ── Bottom Nav ────────────────────────────────────────── */
+        .bottom-nav {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            display: flex;
+            background: rgba(6, 8, 15, 0.92);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border-top: 1px solid var(--border-glass);
+            z-index: 100;
+            padding-bottom: env(safe-area-inset-bottom, 0);
+        }
+
+        .nav-tab {
+            flex: 1;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 4px;
+            padding: 10px 4px 12px;
+            background: none; border: none;
+            color: var(--text-muted);
+            font-family: var(--font);
+            font-size: 10px; font-weight: 600;
+            letter-spacing: 0.5px; text-transform: uppercase;
+            cursor: pointer;
+            transition: color 0.2s;
+            -webkit-tap-highlight-color: transparent;
+            position: relative;
+        }
+
+        .nav-tab.active {
+            color: var(--accent);
+        }
+
+        .nav-tab.active::after {
+            content: '';
+            position: absolute; top: 0; left: 25%; right: 25%;
+            height: 2px;
+            background: var(--accent);
+            border-radius: 0 0 2px 2px;
+        }
+
+        .nav-tab svg {
+            width: 22px; height: 22px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* ── Toast ─────────────────────────────────────────────── */
+        .toast {
+            position: fixed;
+            top: 80px; left: 50%; transform: translateX(-50%) translateY(-20px);
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-sm);
+            padding: 10px 20px;
+            font-size: 13px; font-weight: 500;
+            color: var(--text-primary);
+            z-index: 200;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            white-space: nowrap;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* ── Canvas (hidden) ───────────────────────────────────── */
+        #captureCanvas { display: none; }
+
+        /* ── Responsive ────────────────────────────────────────── */
+        @media (min-width: 600px) {
+            .main { padding: 24px 24px 100px; gap: 20px; }
+            .camera-container { max-width: 360px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ── Header ──────────────────────────────────────────────── -->
+    <header class="header">
+        <div class="header-brand">
+            <div class="header-logo">N</div>
+            <div class="header-title"><span>NHAI</span> FaceGuard</div>
+        </div>
+        <div class="header-badge" id="statusBadge">● Offline Ready</div>
+    </header>
+
+    <!-- ── Main Content ────────────────────────────────────────── -->
+    <main class="main">
+
+        <!-- Camera Feed -->
+        <div class="camera-container" id="cameraContainer">
+            <video id="videoFeed" autoplay playsinline muted></video>
+            <div class="camera-overlay">
+                <div class="scan-frame">
+                    <div class="scan-corner-bl"></div>
+                    <div class="scan-corner-br"></div>
+                </div>
+                <div class="scan-line"></div>
+            </div>
+            <div class="camera-status" id="cameraStatus">
+                <span class="dot"></span> LIVE
+            </div>
+            <!-- Placeholder when camera isn't available -->
+            <div class="camera-placeholder" id="cameraPlaceholder" style="display:none;">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                <p style="font-size: 13px;">Camera unavailable</p>
+                <p style="font-size: 11px; max-width: 240px; text-align: center; line-height: 1.5;">
+                    Ensure you're using HTTPS or set a Chrome flag for insecure origins.
+                </p>
+            </div>
+        </div>
+
+        <!-- Register Form (shown only in Register mode) -->
+        <div class="register-form" id="registerForm">
+            <div class="input-group">
+                <label for="personName">Full Name</label>
+                <input type="text" id="personName" placeholder="e.g. Arjun Sharma" autocomplete="off">
+            </div>
+            <div class="input-group">
+                <label for="personId">Person ID</label>
+                <input type="text" id="personId" placeholder="e.g. EMP001" autocomplete="off">
+            </div>
+        </div>
+
+        <!-- Verify Form (shown only in Verify mode) -->
+        <div class="verify-form" id="verifyForm">
+            <div class="input-group">
+                <label for="verifyPersonId">Person ID to Verify</label>
+                <input type="text" id="verifyPersonId" placeholder="e.g. EMP001" autocomplete="off">
+            </div>
+        </div>
+
+        <!-- Capture Button -->
+        <div class="capture-section">
+            <button class="capture-btn" id="captureBtn" disabled aria-label="Capture photo"></button>
+            <div class="capture-label" id="captureLabel">Initializing camera…</div>
+        </div>
+
+        <!-- Result Card -->
+        <div class="result-card" id="resultCard">
+            <div class="result-header">
+                <div class="result-title" id="resultTitle">Result</div>
+                <button class="result-dismiss" id="resultDismiss" aria-label="Dismiss result">&times;</button>
+            </div>
+            <div id="resultBody"></div>
+        </div>
+
+    </main>
+
+    <!-- ── Bottom Navigation ───────────────────────────────────── -->
+    <nav class="bottom-nav">
+        <button class="nav-tab active" data-mode="identify" id="navIdentify">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Identify
+        </button>
+        <button class="nav-tab" data-mode="register" id="navRegister">
+            <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+            Register
+        </button>
+        <button class="nav-tab" data-mode="verify" id="navVerify">
+            <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            Verify
+        </button>
+    </nav>
+
+    <!-- Hidden Canvas for frame capture -->
+    <canvas id="captureCanvas"></canvas>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast"></div>
+
+    <!-- ── JavaScript ──────────────────────────────────────────── -->
+    <script>
+    (function () {
+        'use strict';
+
+        // ── DOM refs ──────────────────────────────────────────
+        const video         = document.getElementById('videoFeed');
+        const canvas        = document.getElementById('captureCanvas');
+        const ctx           = canvas.getContext('2d');
+        const captureBtn    = document.getElementById('captureBtn');
+        const captureLabel  = document.getElementById('captureLabel');
+        const resultCard    = document.getElementById('resultCard');
+        const resultTitle   = document.getElementById('resultTitle');
+        const resultBody    = document.getElementById('resultBody');
+        const resultDismiss = document.getElementById('resultDismiss');
+        const registerForm  = document.getElementById('registerForm');
+        const verifyForm    = document.getElementById('verifyForm');
+        const cameraStatus  = document.getElementById('cameraStatus');
+        const cameraPlaceholder = document.getElementById('cameraPlaceholder');
+        const toastEl       = document.getElementById('toast');
+        const navTabs       = document.querySelectorAll('.nav-tab');
+
+        let currentMode = 'identify';
+        let cameraReady = false;
+        let isProcessing = false;
+
+        // ── API Base URL (same origin) ────────────────────────
+        const API = window.location.origin;
+
+        // ── Camera Init ───────────────────────────────────────
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                    },
+                    audio: false,
+                });
+                video.srcObject = stream;
+                video.style.display = 'block';
+                cameraPlaceholder.style.display = 'none';
+                cameraStatus.style.display = 'flex';
+
+                video.addEventListener('loadedmetadata', () => {
+                    canvas.width  = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    cameraReady = true;
+                    captureBtn.disabled = false;
+                    updateCaptureLabel();
+                });
+            } catch (err) {
+                console.error('Camera error:', err);
+                video.style.display = 'none';
+                cameraPlaceholder.style.display = 'flex';
+                cameraStatus.style.display = 'none';
+                captureLabel.textContent = 'Camera unavailable';
+                showToast('⚠ Camera access denied. Check HTTPS or browser settings.');
+            }
+        }
+
+        // ── Capture Frame ─────────────────────────────────────
+        function captureFrame() {
+            if (!cameraReady) return null;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // Get base64 JPEG (strip the data URI prefix)
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            return dataUrl.split(',')[1];
+        }
+
+        // ── API Calls ─────────────────────────────────────────
+        async function apiPost(endpoint, body) {
+            const resp = await fetch(`${API}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            return resp.json();
+        }
+
+        async function doIdentify(imageB64) {
+            return apiPost('/identify', {
+                image_b64: imageB64,
+                check_liveness: true,
+                top_k: 3,
+            });
+        }
+
+        async function doRegister(imageB64, personId, personName) {
+            return apiPost('/register', {
+                image_b64: imageB64,
+                person_id: personId,
+                person_name: personName,
+                overwrite: false,
+            });
+        }
+
+        async function doVerify(imageB64, personId) {
+            return apiPost('/verify', {
+                image_b64: imageB64,
+                person_id: personId,
+            });
+        }
+
+        // ── Render Results ────────────────────────────────────
+        function renderIdentifyResult(data) {
+            resultTitle.textContent = 'Identification Result';
+            let html = '';
+
+            // Liveness badge
+            if (data.liveness) {
+                const isReal = data.liveness === 'REAL';
+                html += `
+                    <div class="result-liveness ${isReal ? 'real' : 'spoof'}">
+                        <span class="liveness-icon">${isReal ? '✅' : '🚫'}</span>
+                        <span>Liveness: ${data.liveness}</span>
+                        <span class="liveness-score">${((data.liveness_score || 0) * 100).toFixed(1)}%</span>
+                    </div>`;
+            }
+
+            // Matches
+            if (data.matches && data.matches.length > 0) {
+                const top = data.matches[0];
+                const confPct = (top.confidence * 100).toFixed(1);
+                html += `
+                    <div class="result-match">
+                        <div class="result-name">${escHtml(top.person_name)}</div>
+                        <div class="result-meta">
+                            <div class="result-meta-item">
+                                <span class="result-meta-label">Person ID</span>
+                                <span class="result-meta-value">${escHtml(top.person_id)}</span>
+                            </div>
+                            <div class="result-meta-item">
+                                <span class="result-meta-label">Confidence</span>
+                                <span class="result-meta-value" style="color: var(--accent-green);">${confPct}%</span>
+                            </div>
+                            <div class="result-meta-item">
+                                <span class="result-meta-label">Distance</span>
+                                <span class="result-meta-value">${top.distance.toFixed(4)}</span>
+                            </div>
+                        </div>
+                        <div class="confidence-bar-wrapper">
+                            <div class="confidence-bar">
+                                <div class="confidence-bar-fill" style="width: ${confPct}%"></div>
+                            </div>
+                        </div>
+                    </div>`;
+
+                // Additional matches
+                if (data.matches.length > 1) {
+                    html += '<div style="margin-top:6px;">';
+                    for (let i = 1; i < data.matches.length; i++) {
+                        const m = data.matches[i];
+                        html += `<div style="font-size:12px;color:var(--text-secondary);padding:4px 0;">
+                            ${escHtml(m.person_name)} — ${(m.confidence*100).toFixed(1)}%
+                        </div>`;
+                    }
+                    html += '</div>';
+                }
+            }
+
+            // Message
+            if (data.message) {
+                const cls = data.success ? '' : ' error';
+                html += `<div class="result-message${cls}">${escHtml(data.message)}</div>`;
+            }
+
+            resultBody.innerHTML = html;
+            showResult();
+        }
+
+        function renderRegisterResult(data) {
+            resultTitle.textContent = 'Registration Result';
+            const cls = data.success ? 'success' : 'error';
+            resultBody.innerHTML = `
+                <div class="result-message ${cls}">
+                    ${data.success ? '✅' : '❌'} ${escHtml(data.message || (data.detail || 'Unknown error'))}
+                </div>`;
+            showResult();
+        }
+
+        function renderVerifyResult(data) {
+            resultTitle.textContent = 'Verification Result';
+            let html = '';
+
+            if (data.liveness) {
+                const isReal = data.liveness === 'REAL';
+                html += `
+                    <div class="result-liveness ${isReal ? 'real' : 'spoof'}">
+                        <span class="liveness-icon">${isReal ? '✅' : '🚫'}</span>
+                        <span>Liveness: ${data.liveness}</span>
+                        <span class="liveness-score">${((data.liveness_score || 0) * 100).toFixed(1)}%</span>
+                    </div>`;
+            }
+
+            if (data.is_match !== undefined) {
+                const matchColor = data.is_match ? 'var(--accent-green)' : 'var(--accent-red)';
+                const matchIcon = data.is_match ? '✅' : '❌';
+                html += `
+                    <div class="result-match">
+                        <div class="result-name" style="color: ${matchColor};">
+                            ${matchIcon} ${data.is_match ? 'Identity Verified' : 'Not Matched'}
+                        </div>
+                        <div class="result-meta">
+                            <div class="result-meta-item">
+                                <span class="result-meta-label">Distance</span>
+                                <span class="result-meta-value">${data.distance >= 0 ? data.distance.toFixed(4) : 'N/A'}</span>
+                            </div>
+                        </div>
+                    </div>`;
+            }
+
+            if (data.message) {
+                const cls = data.success ? '' : ' error';
+                html += `<div class="result-message${cls}">${escHtml(data.message || data.detail || '')}</div>`;
+            }
+
+            resultBody.innerHTML = html;
+            showResult();
+        }
+
+        function renderError(msg) {
+            resultTitle.textContent = 'Error';
+            resultBody.innerHTML = `<div class="result-message error">❌ ${escHtml(msg)}</div>`;
+            showResult();
+        }
+
+        function showResult() {
+            resultCard.classList.add('active');
+            resultCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function hideResult() {
+            resultCard.classList.remove('active');
+        }
+
+        // ── Main Capture Handler ──────────────────────────────
+        async function handleCapture() {
+            if (isProcessing || !cameraReady) return;
+
+            const imageB64 = captureFrame();
+            if (!imageB64) {
+                showToast('Failed to capture frame.');
+                return;
+            }
+
+            isProcessing = true;
+            captureBtn.classList.add('loading');
+            captureBtn.disabled = true;
+            captureLabel.textContent = 'Processing…';
+            hideResult();
+
+            try {
+                let data;
+
+                if (currentMode === 'identify') {
+                    data = await doIdentify(imageB64);
+                    renderIdentifyResult(data);
+
+                } else if (currentMode === 'register') {
+                    const personName = document.getElementById('personName').value.trim();
+                    const personId   = document.getElementById('personId').value.trim();
+                    if (!personName || !personId) {
+                        renderError('Please fill in both Name and Person ID.');
+                        return;
+                    }
+                    data = await doRegister(imageB64, personId, personName);
+                    renderRegisterResult(data);
+                    if (data.success) {
+                        document.getElementById('personName').value = '';
+                        document.getElementById('personId').value = '';
+                    }
+
+                } else if (currentMode === 'verify') {
+                    const vpid = document.getElementById('verifyPersonId').value.trim();
+                    if (!vpid) {
+                        renderError('Please enter a Person ID to verify against.');
+                        return;
+                    }
+                    data = await doVerify(imageB64, vpid);
+                    renderVerifyResult(data);
+                }
+
+            } catch (err) {
+                console.error('API error:', err);
+                renderError('Network error — is the server running?');
+            } finally {
+                isProcessing = false;
+                captureBtn.classList.remove('loading');
+                captureBtn.disabled = false;
+                updateCaptureLabel();
+            }
+        }
+
+        // ── Mode Switching ────────────────────────────────────
+        function switchMode(mode) {
+            currentMode = mode;
+            hideResult();
+
+            navTabs.forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.mode === mode);
+            });
+
+            registerForm.classList.toggle('active', mode === 'register');
+            verifyForm.classList.toggle('active', mode === 'verify');
+            updateCaptureLabel();
+        }
+
+        function updateCaptureLabel() {
+            const labels = {
+                identify: 'Tap to Identify',
+                register: 'Tap to Register Face',
+                verify: 'Tap to Verify Identity',
+            };
+            captureLabel.textContent = labels[currentMode] || 'Capture';
+        }
+
+        // ── Toast ─────────────────────────────────────────────
+        let toastTimeout;
+        function showToast(msg) {
+            clearTimeout(toastTimeout);
+            toastEl.textContent = msg;
+            toastEl.classList.add('show');
+            toastTimeout = setTimeout(() => toastEl.classList.remove('show'), 3500);
+        }
+
+        // ── Util ──────────────────────────────────────────────
+        function escHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // ── Health Check ──────────────────────────────────────
+        async function checkHealth() {
+            try {
+                const resp = await fetch(`${API}/health`);
+                const data = await resp.json();
+                const badge = document.getElementById('statusBadge');
+                badge.textContent = `● ${data.enrolled_count} enrolled`;
+                badge.style.color = 'var(--accent-green)';
+            } catch (e) {
+                const badge = document.getElementById('statusBadge');
+                badge.textContent = '● Server Error';
+                badge.style.color = 'var(--accent-red)';
+            }
+        }
+
+        // ── Event Listeners ───────────────────────────────────
+        captureBtn.addEventListener('click', handleCapture);
+        resultDismiss.addEventListener('click', hideResult);
+
+        navTabs.forEach(tab => {
+            tab.addEventListener('click', () => switchMode(tab.dataset.mode));
+        });
+
+        // ── Init ──────────────────────────────────────────────
+        initCamera();
+        checkHealth();
+
+    })();
+    </script>
+
+</body>
+</html>
